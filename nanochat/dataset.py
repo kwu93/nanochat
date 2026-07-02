@@ -81,6 +81,15 @@ def parquets_iter_batched(split, start=0, step=1):
             yield texts
 
 # -----------------------------------------------------------------------------
+def hf_auth_headers():
+    """
+    Authorization header for Hugging Face, if a token is set in the environment.
+    Authenticated requests get much higher Hub rate limits than anonymous ones.
+    Returns an empty dict when no token is present (anonymous download still works).
+    """
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
 def download_single_file(index):
     """ Downloads a single file index, with some backoff """
 
@@ -99,7 +108,7 @@ def download_single_file(index):
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.get(url, stream=True, timeout=30)
+            response = requests.get(url, stream=True, timeout=30, headers=hf_auth_headers())
             response.raise_for_status()
             # Write to temporary file first
             temp_path = filepath + f".tmp"
