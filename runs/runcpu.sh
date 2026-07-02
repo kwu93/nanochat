@@ -45,15 +45,28 @@ python -m scripts.base_train \
 python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
 
 # SFT (~10 minutes on my MacBook Pro M3 Max)
+# Two settings differ from a GPU run and matter on CPU/MPS:
+# - max-seq-len=2048 (with device-batch-size=8 to keep the 16384-token budget): the SFT packer
+#   never crops conversations, and the median chat conversation is ~880 tokens, so a 512 context
+#   leaves most conversations unplaceable. The buffer then fills with too-long conversations and
+#   every batch becomes all-padding => all targets masked => nan loss => zero gradients (no learning).
+# - eval-every=-1: the in-training bpb eval runs the torch.compile'd model, which poisons subsequent
+#   training on MPS (loss goes nan from ~step 3). torch.compile can't just be disabled (the fused
+#   AdamW optimizer depends on it), so we skip the in-training eval and evaluate separately below.
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 python -m scripts.chat_sft \
-    --max-seq-len=512 \
-    --device-batch-size=32 \
+    --max-seq-len=2048 \
+    --device-batch-size=8 \
     --total-batch-size=16384 \
-    --eval-every=200 \
+    --eval-every=-1 \
     --eval-tokens=524288 \
     --num-iterations=1500 \
+    --chatcore-every=-1 \
     --run=$WANDB_RUN
+
+# Evaluate the SFT model on the chat benchmarks (ARC/MMLU/GSM8K/etc).
+# Done here instead of in-training because --eval-every=-1 disabled the in-training eval above.
+# python -m scripts.chat_eval -i sft
 
 # Chat with the model over CLI
 # The model should be able to say that it is Paris.

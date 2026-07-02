@@ -331,6 +331,7 @@ def get_muon_momentum(it):
 x, y = next(train_loader) # prefetch the very first batch of data
 min_val_bpb = float("inf")
 smooth_train_loss = 0 # EMA of training loss
+num_loss_updates = 0 # number of finite-loss steps, for correct EMA debiasing when nan batches are skipped
 ema_beta = 0.9 # EMA decay factor
 total_training_time = 0 # total wall-clock time of training
 step = 0
@@ -465,8 +466,14 @@ while True:
     step += 1
 
     # logging
-    smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss.item() # EMA the training loss
-    debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1)) # debias the EMA
+    # A SFT batch with zero unmasked target tokens (e.g. a conversation with no assistant turn)
+    # yields a nan mean-loss (0/0). Its gradients are all zero so training is unaffected, but a
+    # single nan would poison this running average forever, so skip non-finite losses here.
+    train_loss_item = train_loss.item()
+    if torch.isfinite(train_loss).item():
+        smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_item
+        num_loss_updates += 1
+    debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**num_loss_updates) if num_loss_updates > 0 else float("nan")
     pct_done = 100 * progress
     tok_per_sec = int(args.total_batch_size / dt)
     flops_per_sec = num_flops_per_token * args.total_batch_size / dt
