@@ -33,8 +33,21 @@ def _load_flash_attention_3():
         import os
         os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
         from kernels import get_kernel
-        return get_kernel('varunneal/flash-attention-3').flash_attn_interface
-    except Exception:
+        # Pinned commit of the repo's main branch (as of 2026-07-06): the repo has no
+        # version tags, and newer `kernels` releases require an explicit revision.
+        repo = 'varunneal/flash-attention-3'
+        revision = 'de87b9b5af06dd9984df595bef90b2eba44b181a'
+        try:
+            # newer `kernels` versions can't verify this publisher's trust status
+            # (HF 404s on the org overview) and require an explicit opt-in
+            kernel = get_kernel(repo, revision=revision, trust_remote_code=True)
+        except TypeError:
+            # older `kernels` versions don't have the trust_remote_code parameter
+            kernel = get_kernel(repo, revision=revision)
+        return kernel.flash_attn_interface
+    except Exception as e:
+        # we expected FA3 to load on this GPU; surface why it didn't
+        print(f"WARNING: Flash Attention 3 failed to load, will fall back to SDPA: {e}")
         return None
 
 

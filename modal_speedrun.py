@@ -50,7 +50,10 @@ image = (
     .pip_install(
         "datasets>=4.0.0",
         "fastapi>=0.117.1",
-        "kernels>=0.11.7",
+        # == instead of >= (mirroring uv.lock): kernels 0.14+ only supports the new
+        # HF "kernel" repo type and can no longer load the FA3 build we use, which
+        # is published as a plain model repo. See nanochat/flash_attention.py.
+        "kernels==0.11.7",
         "rustbpe>=0.1.0",
         "tiktoken>=0.11.0",
         "tokenizers>=0.22.0",
