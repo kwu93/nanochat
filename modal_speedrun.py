@@ -15,11 +15,11 @@ Usage (from the repo root, after `pip install modal` and `modal token new`):
     # Full GPT-2-grade speedrun on 8xH100 (~3h, depth-24 + fp8):
     modal run modal_speedrun.py --mode full
 
-    # With Weights & Biases logging (create the secret once, then set USE_WANDB):
-    #   modal secret create wandb WANDB_API_KEY=xxxxxxxx
-    USE_WANDB=1 modal run modal_speedrun.py --mode full --wandb-run my-speedrun
+    # With Weights & Biases logging (requires the wandb secret, see below):
+    modal run modal_speedrun.py --mode full --wandb-run my-speedrun
 
 Browse artifacts afterwards with:  modal volume ls nanochat-cache
+Pull checkpoints down locally (works mid-run too):  python modal_pull.py
 """
 
 import os
@@ -72,13 +72,13 @@ image = (
     )
 )
 
-# Hugging Face token (raises Hub rate limits; used by the FA3 kernel fetch on all ranks).
-# Requires: `modal secret create huggingface HF_TOKEN=hf_...`.
-HF_SECRET = modal.Secret.from_name("huggingface")
-# Attach the wandb secret only when the user opts in (USE_WANDB=1 locally), so the
-# default/smoke path needs no wandb secret. Requires: `modal secret create wandb WANDB_API_KEY=...`.
-WANDB_SECRETS = [modal.Secret.from_name("wandb")] if os.environ.get("USE_WANDB") else []
-SECRETS = [HF_SECRET, *WANDB_SECRETS]
+# Secrets, both required once per workspace:
+#   modal secret create huggingface HF_TOKEN=hf_...   (raises Hub rate limits; FA3 kernel fetch)
+#   modal secret create wandb WANDB_API_KEY=...       (only used when --wandb-run is passed)
+# Note: secrets must be attached unconditionally. Conditioning them on a local env var
+# makes the function's dependency list differ between the local and in-container import
+# of this module, which Modal rejects at runtime ("N dependencies but got M object ids").
+SECRETS = [modal.Secret.from_name("huggingface"), modal.Secret.from_name("wandb")]
 
 IDENTITY_URL = "https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl"
 
@@ -125,6 +125,10 @@ def run_pipeline(mode: str, wandb_run: str) -> None:
     else:
         base_train_args = [
             "--depth=24", "--target-param-data-ratio=8", "--device-batch-size=16", "--fp8",
+            # Save intermediate checkpoints so they can be pulled and played with locally
+            # while the run is still going (see modal_pull.py). Volume background commits
+            # make them visible to `modal volume get` within seconds of being written.
+            "--save-every=250",
             f"--run={wandb_run}",
         ]
         base_eval_args = ["--device-batch-size=16"]
