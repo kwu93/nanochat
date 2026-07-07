@@ -132,8 +132,13 @@ def run_pipeline(mode: str, wandb_run: str) -> None:
     # --- SFT + chat eval ----------------------------------------------------
     _sh(["curl", "-L", "-o", os.path.join(CACHE, "identity_conversations.jsonl"), IDENTITY_URL])
     if smoke:
+        # max-seq-len=2048 (with device-batch-size=8 to keep the 16384-token budget): the SFT
+        # packer never crops conversations, and the median chat conversation is ~880 tokens, so a
+        # 512 context leaves most conversations unplaceable -> batches become all-padding -> nan
+        # loss -> no learning. See runs/runcpu.sh for the same reasoning on CPU/MPS. (The full run
+        # doesn't set --max-seq-len and inherits 2048 from pretraining, so it is unaffected.)
         sft_args = [
-            "--max-seq-len=512", "--device-batch-size=32", "--total-batch-size=16384",
+            "--max-seq-len=2048", "--device-batch-size=8", "--total-batch-size=16384",
             "--eval-every=200", "--eval-tokens=524288", "--num-iterations=1500",
             f"--run={wandb_run}",
         ]
